@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(3)
@@ -50,22 +50,29 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": status, "service": "dashboard"})
+	writeJSON(w, map[string]string{"status": status, "service": "dashboard"})
 }
 
 func handleSummary(w http.ResponseWriter, r *http.Request) {
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 
 	var totalURLs, totalClicks, clicksToday int
-	db.QueryRow("SELECT COUNT(*) FROM urls").Scan(&totalURLs)
-	db.QueryRow("SELECT COALESCE(SUM(clicks), 0) FROM urls").Scan(&totalClicks)
-	db.QueryRow(
+	if err := db.QueryRow("SELECT COUNT(*) FROM urls").Scan(&totalURLs); err != nil {
+		log.Printf("summary: total urls: %v", err)
+	}
+	if err := db.QueryRow("SELECT COALESCE(SUM(clicks), 0) FROM urls").Scan(&totalClicks); err != nil {
+		log.Printf("summary: total clicks: %v", err)
+	}
+	err := db.QueryRow(
 		"SELECT COALESCE(SUM(clicks), 0) FROM click_stats_hourly WHERE hour >= $1",
 		today,
 	).Scan(&clicksToday)
+	if err != nil {
+		log.Printf("summary: clicks today: %v", err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"total_urls":   totalURLs,
 		"total_clicks": totalClicks,
 		"clicks_today": clicksToday,
@@ -105,16 +112,19 @@ func handleURLStats(w http.ResponseWriter, r *http.Request) {
 
 	hourly := []HourlyStat{}
 	if err == nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var h HourlyStat
-			rows.Scan(&h.Hour, &h.Clicks)
+			if err := rows.Scan(&h.Hour, &h.Clicks); err != nil {
+				log.Printf("url stats: scan: %v", err)
+				continue
+			}
 			hourly = append(hourly, h)
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"short_code":   code,
 		"url":          url,
 		"total_clicks": clicks,
@@ -132,7 +142,7 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "query failed", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type Click struct {
 		ShortCode string `json:"short_code"`
@@ -144,12 +154,15 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 	clicks := []Click{}
 	for rows.Next() {
 		var c Click
-		rows.Scan(&c.ShortCode, &c.IP, &c.UserAgent, &c.ClickedAt)
+		if err := rows.Scan(&c.ShortCode, &c.IP, &c.UserAgent, &c.ClickedAt); err != nil {
+			log.Printf("recent: scan: %v", err)
+			continue
+		}
 		clicks = append(clicks, c)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(clicks)
+	writeJSON(w, clicks)
 }
 
 func handleTop(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +173,7 @@ func handleTop(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "query failed", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type TopURL struct {
 		ShortCode string `json:"short_code"`
@@ -171,18 +184,28 @@ func handleTop(w http.ResponseWriter, r *http.Request) {
 	top := []TopURL{}
 	for rows.Next() {
 		var t TopURL
-		rows.Scan(&t.ShortCode, &t.URL, &t.Clicks)
+		if err := rows.Scan(&t.ShortCode, &t.URL, &t.Clicks); err != nil {
+			log.Printf("top: scan: %v", err)
+			continue
+		}
 		top = append(top, t)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(top)
+	writeJSON(w, top)
 }
 
 func httpError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	writeJSON(w, map[string]string{"error": msg})
+}
+
+// writeJSON encodes v to the response and logs (rather than drops) any failure.
+func writeJSON(w http.ResponseWriter, v interface{}) {
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("write response: %v", err)
+	}
 }
 
 func getEnv(key, fallback string) string {

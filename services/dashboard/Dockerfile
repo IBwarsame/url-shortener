@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build: static binary, cross-compiled for the target arch ----
-FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -13,5 +13,5 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 # ---- runtime: distroless, non-root ----
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/dashboard /dashboard
-USER nonroot:nonroot
+USER 65532:65532
 ENTRYPOINT ["/dashboard"]
