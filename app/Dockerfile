@@ -12,7 +12,7 @@ RUN pip install -r requirements.txt
 # ---- runtime: slim image, non-root ----
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH" PORT=8080
+    PATH="/opt/venv/bin:$PATH"
 RUN useradd --system --uid 10001 --no-create-home app
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
@@ -20,5 +20,5 @@ COPY src ./src
 USER 10001
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT','8080'), timeout=2)"
-CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port ${PORT}"]
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]

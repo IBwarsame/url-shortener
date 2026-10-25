@@ -39,7 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(3)
@@ -65,11 +65,13 @@ func main() {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": status, "service": "worker"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"status": status, "service": "worker"}); err != nil {
+				log.Printf("health response: %v", err)
+			}
 		})
 		port := getEnv("HEALTH_PORT", "8090")
 		log.Printf("Worker health check on :%s", port)
-		http.ListenAndServe(":"+port, mux)
+		log.Printf("Worker health server stopped: %v", http.ListenAndServe(":"+port, mux))
 	}()
 
 	// Graceful shutdown
