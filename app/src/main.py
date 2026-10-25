@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
-import os, hashlib, time, json
+import hashlib
+import os
+import time
 from .db import put_mapping, get_mapping, get_backend_type, increment_clicks
 from .events import publish_click_event
 from .cache import get_cached_url, set_cached_url
