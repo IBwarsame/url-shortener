@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -29,7 +30,7 @@ type ClickEvent struct {
 }
 
 func main() {
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := databaseURL()
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL is required")
 	}
@@ -205,6 +206,25 @@ func processClickEvent(raw string) error {
 	)
 
 	return err
+}
+
+// databaseURL returns DATABASE_URL, or builds one from DB_* vars (ECS injects the password separately).
+func databaseURL() string {
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		return v
+	}
+	host := os.Getenv("DB_HOST")
+	if host == "" {
+		return ""
+	}
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(os.Getenv("DB_USER"), os.Getenv("DB_PASSWORD")),
+		Host:     host + ":" + getEnv("DB_PORT", "5432"),
+		Path:     os.Getenv("DB_NAME"),
+		RawQuery: "sslmode=require",
+	}
+	return u.String()
 }
 
 func getEnv(key, fallback string) string {

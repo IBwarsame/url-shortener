@@ -14,12 +14,28 @@ import os
 _backend = None
 
 
+def _database_url():
+    """DATABASE_URL, or one built from DB_* vars (ECS injects the password separately)."""
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        return url
+    host = os.environ.get("DB_HOST")
+    if not host:
+        return None
+    from urllib.parse import quote
+    user = quote(os.environ.get("DB_USER", ""), safe="")
+    password = quote(os.environ.get("DB_PASSWORD", ""), safe="")
+    port = os.environ.get("DB_PORT", "5432")
+    name = os.environ.get("DB_NAME", "")
+    return f"postgresql://{user}:{password}@{host}:{port}/{name}?sslmode=require"
+
+
 def _get_backend():
     global _backend
     if _backend is not None:
         return _backend
 
-    if os.environ.get("DATABASE_URL"):
+    if _database_url():
         _backend = _init_postgres()
     elif os.environ.get("TABLE_NAME"):
         _backend = _init_dynamodb()
@@ -58,7 +74,7 @@ def _init_postgres():
     import psycopg2
     from psycopg2.extras import RealDictCursor
 
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    conn = psycopg2.connect(_database_url())
     conn.autocommit = True
 
     with conn.cursor() as cur:
