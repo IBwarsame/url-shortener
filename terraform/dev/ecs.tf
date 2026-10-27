@@ -27,7 +27,7 @@ locals {
       secret = local.db_secrets
       env = concat(local.db_env, [
         { name = "PORT", value = "8080" },
-        { name = "REDIS_URL", value = "redis://${local.redis_host}:6379" },
+        { name = "REDIS_URL", value = "rediss://${local.redis_host}:6379" },
         { name = "SQS_QUEUE_URL", value = local.queue_url },
       ])
     }
@@ -55,6 +55,8 @@ locals {
   }
 }
 
+# The default AWS encryption is enough here; a customer-managed key costs about $1/month.
+#tfsec:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "service" {
   for_each = local.services
 
@@ -62,6 +64,8 @@ resource "aws_cloudwatch_log_group" "service" {
   retention_in_days = 3
 }
 
+# Container Insights costs extra, so it is off in dev.
+#tfsec:ignore:AVD-AWS-0034
 resource "aws_ecs_cluster" "main" {
   name = "url-shortener-dev"
 }

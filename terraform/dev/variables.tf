@@ -3,3 +3,8 @@ variable "image_tag" {
   type        = string
   default     = "v1"
 }
+variable "production" {
+  description = "false = cheap dev settings, true = production settings"
+  type        = bool
+  default     = false
+}
