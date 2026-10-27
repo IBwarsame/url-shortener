@@ -141,6 +141,7 @@ data "aws_iam_policy_document" "ecr_push" {
       "ecr:BatchCheckLayerAvailability",
       "ecr:BatchGetImage",
       "ecr:CompleteLayerUpload",
+      "ecr:DescribeImages",
       "ecr:GetDownloadUrlForLayer",
       "ecr:InitiateLayerUpload",
       "ecr:PutImage",
@@ -154,4 +155,42 @@ resource "aws_iam_role_policy" "ecr_push" {
   name   = "ecr-push"
   role   = aws_iam_role.github_deploy.id
   policy = data.aws_iam_policy_document.ecr_push.json
+}
+
+# What the deploy job needs: read and register task definitions, update the services.
+data "aws_iam_policy_document" "ecs_deploy" {
+  statement {
+    sid = "TaskDefinitions"
+    actions = [
+      "ecs:DescribeTaskDefinition",
+      "ecs:RegisterTaskDefinition", # these two do not support resource scoping
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "UpdateServices"
+    actions   = ["ecs:DescribeServices", "ecs:UpdateService"]
+    resources = ["arn:aws:ecs:us-east-1:${data.aws_caller_identity.current.account_id}:service/url-shortener-dev/*"]
+  }
+
+  # A new task definition names the execution and task roles, so the deployer
+  # must be allowed to hand exactly those roles to ECS and nothing else.
+  statement {
+    sid       = "PassTaskRoles"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/url-shortener-dev-*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_deploy" {
+  name   = "ecs-deploy"
+  role   = aws_iam_role.github_deploy.id
+  policy = data.aws_iam_policy_document.ecs_deploy.json
 }

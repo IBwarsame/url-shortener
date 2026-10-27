@@ -63,7 +63,7 @@ jobs:
 #          terraform_version: 1.17.0
 #      - uses: aws-actions/configure-aws-credentials@v6
 #        with:
-#          role-to-arn: arn:aws:iam::150575195510:role/REPLACE-WITH-READ-ONLY-PLAN-ROLE
+#          role-to-assume: arn:aws:iam::150575195510:role/REPLACE-WITH-READ-ONLY-PLAN-ROLE
 #          aws-region: us-east-1
 #      - run: terraform init -input=false
 #      - run: terraform plan -input=false -no-color -out=tfplan
@@ -98,7 +98,7 @@ jobs:
 #          terraform_version: 1.17.0
 #      - uses: aws-actions/configure-aws-credentials@v6
 #        with:
-#          role-to-arn: arn:aws:iam::150575195510:role/url-shortener-github-deploy
+#          role-to-assume: arn:aws:iam::150575195510:role/url-shortener-github-deploy
 #          aws-region: us-east-1
 #      - run: terraform init -input=false
 #      - run: terraform apply -input=false -auto-approve

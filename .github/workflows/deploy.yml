@@ -1,0 +1,94 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "services/**", ".github/workflows/deploy.yml"]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Also deploy to ECS (the dev stack must be applied)"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write # lets the job get temporary AWS credentials (OIDC)
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ROLE_ARN: arn:aws:iam::150575195510:role/url-shortener-github-deploy
+  REGISTRY: 150575195510.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  build:
+    name: Build and push (${{ matrix.service }})
+    runs-on: ubuntu-24.04-arm # native arm64, matching the Fargate tasks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { service: api, context: app }
+          - { service: worker, context: services/worker }
+          - { service: dashboard, context: services/dashboard }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      # Tags are immutable, so a re-run of the same commit must skip the push
+      - name: Check if this commit is already pushed
+        id: exists
+        run: |
+          if aws ecr describe-images --repository-name url-shortener/${{ matrix.service }} \
+               --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build and push
+        if: steps.exists.outputs.found != 'true'
+        run: |
+          IMAGE=${{ env.REGISTRY }}/url-shortener/${{ matrix.service }}:${{ github.sha }}
+          docker build -t "$IMAGE" ${{ matrix.context }}
+          docker push "$IMAGE"
+
+  deploy:
+    name: Deploy to ECS (${{ matrix.service }})
+    needs: build
+    # Only on a manual run with the box ticked: the stack is not always up
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    runs-on: ubuntu-24.04
+    environment: dev # approval gate; also the identity the AWS role trusts
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, worker, dashboard]
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Get the running task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition url-shortener-dev-${{ matrix.service }} \
+            --query taskDefinition > task-definition.json
+      - name: Set the new image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ matrix.service }}
+          image: ${{ env.REGISTRY }}/url-shortener/${{ matrix.service }}:${{ github.sha }}
+      # Waits until healthy; the circuit breaker rolls back a bad version
+      - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ matrix.service }}
+          cluster: url-shortener-dev
+          wait-for-service-stability: true

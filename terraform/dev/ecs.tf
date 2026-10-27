@@ -231,5 +231,10 @@ resource "aws_ecs_service" "service" {
     }
   }
 
+  # The deploy pipeline owns the running image version, so Terraform must not revert it
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+
   depends_on = [aws_lb_listener.http, aws_ecs_cluster_capacity_providers.main]
 }
