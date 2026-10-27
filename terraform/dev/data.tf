@@ -2,9 +2,7 @@
 #   api --click event--> SQS queue --> worker --> RDS <-- api, dashboard
 #   api <--cache--> Redis (Valkey)
 
-# ---------------------------------------------------------------------------
 # SQS: click events go api -> queue -> worker
-# ---------------------------------------------------------------------------
 
 # Where messages go if the worker keeps failing on them (the "dead-letter
 # queue"). Without it, a bad message would be retried forever.
@@ -37,6 +35,10 @@ resource "aws_db_subnet_group" "main" {
   tags       = { Name = "url-shortener-dev" }
 }
 
+# Ignored in dev on purpose: IAM auth (the password is in Secrets Manager), performance
+# insights (extra cost) and deletion protection (off so destroy works; on when production = true).
+#tfsec:ignore:AVD-AWS-0176
+#tfsec:ignore:AVD-AWS-0133
 resource "aws_db_instance" "main" {
   identifier     = "url-shortener-dev"
   engine         = "postgres"
@@ -58,12 +60,14 @@ resource "aws_db_instance" "main" {
   vpc_security_group_ids = [aws_security_group.rds.id]
   publicly_accessible    = false
 
-  # Dev settings: single AZ, no final snapshot, so `terraform destroy` works.
-  # Production would use multi_az = true, a final snapshot and deletion protection.
-  multi_az                = false
-  backup_retention_period = 1
-  skip_final_snapshot     = true
-  deletion_protection     = false
+  # Dev: single AZ, no final snapshot, no deletion protection, so `terraform destroy` works.
+  # production = true turns on Multi-AZ, a final snapshot, deletion protection and 14-day backups.
+  multi_az                  = var.production
+  backup_retention_period   = var.production ? 14 : 7
+  skip_final_snapshot       = !var.production
+  final_snapshot_identifier = var.production ? "url-shortener-final" : null
+  #tfsec:ignore:AVD-AWS-0177
+  deletion_protection = var.production
 }
 
 # ---------------------------------------------------------------------------
@@ -78,19 +82,20 @@ resource "aws_elasticache_subnet_group" "main" {
 # Valkey is the open-source Redis fork. It speaks the same protocol, so the
 # api's redis client works unchanged, and it is cheaper than Redis on AWS.
 #
-# Valkey is only available through a "replication group". We ask for exactly
-# one node and no failover, so it costs the same as a single cache node.
+# Valkey is only available through a "replication group". Dev runs one node
+# with no failover; production = true runs two nodes with failover.
 resource "aws_elasticache_replication_group" "main" {
-  replication_group_id = "url-shortener-dev"
-  description          = "Cache for the url-shortener api"
-  engine               = "valkey"
-  engine_version       = "8.0"
-  node_type            = "cache.t4g.micro"
-  num_cache_clusters   = 1
-  parameter_group_name = "default.valkey8"
-  port                 = 6379
-
-  automatic_failover_enabled = false # one node only, a dev setting
+  replication_group_id       = "url-shortener-dev"
+  description                = "Cache for the url-shortener api"
+  engine                     = "valkey"
+  engine_version             = "8.0"
+  node_type                  = "cache.t4g.micro"
+  parameter_group_name       = "default.valkey8"
+  port                       = 6379
+  num_cache_clusters         = var.production ? 2 : 1
+  automatic_failover_enabled = var.production
+  multi_az_enabled           = var.production
+  transit_encryption_enabled = true
   at_rest_encryption_enabled = true
 
   subnet_group_name  = aws_elasticache_subnet_group.main.name

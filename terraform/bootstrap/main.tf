@@ -2,6 +2,8 @@
 data "aws_caller_identity" "current" {}
 
 # 1. Terraform state bucket
+# Access logging is skipped for this small state bucket; production would add it.
+#tfsec:ignore:AVD-AWS-0089
 resource "aws_s3_bucket" "tfstate" {
   bucket = "url-shortener-tfstate-${data.aws_caller_identity.current.account_id}"
 }
@@ -16,6 +18,8 @@ resource "aws_s3_bucket_versioning" "tfstate" {
 }
 
 # Encrypts state at rest. State files can contain secrets (e.g. DB passwords).
+# AES256 is enough here; a customer-managed key costs about $1/month.
+#tfsec:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate" {
   bucket = aws_s3_bucket.tfstate.id
 
@@ -42,6 +46,8 @@ resource "aws_s3_bucket_public_access_block" "tfstate" {
 
 # for_each makes one repo per name in var.services (api, worker, dashboard).
 # each.key is the current name, e.g. "api".
+# AES256 is enough here; a customer-managed key costs about $1/month.
+#tfsec:ignore:AVD-AWS-0033
 resource "aws_ecr_repository" "service" {
   for_each = var.services
 
