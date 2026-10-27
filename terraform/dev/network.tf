@@ -18,8 +18,9 @@ resource "aws_subnet" "public" {
   tags = { Name = "url-shortener-dev-public-${count.index}" }
 }
 resource "aws_subnet" "private" {
-  count             = 2
-  vpc_id            = aws_vpc.main.id
+  count  = 2
+  vpc_id = aws_vpc.main.id
+  # +10 keeps the private ranges (10.0.10.x, 10.0.11.x) clear of the public ones  git
   cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index + 10)
   availability_zone = data.aws_availability_zones.available.names[count.index]
 

@@ -1,0 +1,104 @@
+name: infra
+
+on:
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/infra.yml"]
+  push:
+    branches: [main]
+    paths: ["terraform/**", ".github/workflows/infra.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Terraform (${{ matrix.directory }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: [bootstrap, dev]
+    defaults:
+      run:
+        working-directory: terraform/${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.17.0
+      - run: terraform fmt -check -recursive
+      # -backend=false: no AWS login needed for these checks
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate -no-color
+      - uses: terraform-linters/setup-tflint@v6
+      - run: tflint --init && tflint
+      - uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform/${{ matrix.directory }}
+
+# OFF ON PURPOSE: plan on pull request, apply on main.
+# Apply is manual because an automatic apply could start a ~$0.20/hour stack by
+# accident.
+#
+#  plan:
+#    name: Terraform plan (dev)
+#    if: github.event_name == 'pull_request'
+#    needs: checks
+#    runs-on: ubuntu-24.04
+#    permissions:
+#      id-token: write        # lets the job ask AWS for temporary credentials (OIDC)
+#      contents: read
+#      pull-requests: write   # lets the job comment the plan on the PR
+#    defaults:
+#      run:
+#        working-directory: terraform/dev
+#    steps:
+#      - uses: actions/checkout@v7
+#      - uses: hashicorp/setup-terraform@v4
+#        with:
+#          terraform_version: 1.17.0
+#      - uses: aws-actions/configure-aws-credentials@v6
+#        with:
+#          role-to-arn: arn:aws:iam::150575195510:role/REPLACE-WITH-READ-ONLY-PLAN-ROLE
+#          aws-region: us-east-1
+#      - run: terraform init -input=false
+#      - run: terraform plan -input=false -no-color -out=tfplan
+#      - run: terraform show -no-color tfplan > plan.txt
+#      - uses: actions/github-script@v9
+#        with:
+#          script: |
+#            const fs = require('fs');
+#            const plan = fs.readFileSync('terraform/dev/plan.txt', 'utf8').slice(0, 60000);
+#            await github.rest.issues.createComment({
+#              ...context.repo,
+#              issue_number: context.issue.number,
+#              body: '```\n' + plan + '\n```',
+#            });
+#
+#  apply:
+#    name: Terraform apply (dev)
+#    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+#    needs: checks
+#    runs-on: ubuntu-24.04
+#    environment: dev          # pauses here until a reviewer approves
+#    permissions:
+#      id-token: write
+#      contents: read
+#    defaults:
+#      run:
+#        working-directory: terraform/dev
+#    steps:
+#      - uses: actions/checkout@v7
+#      - uses: hashicorp/setup-terraform@v4
+#        with:
+#          terraform_version: 1.17.0
+#      - uses: aws-actions/configure-aws-credentials@v6
+#        with:
+#          role-to-arn: arn:aws:iam::150575195510:role/url-shortener-github-deploy
+#          aws-region: us-east-1
+#      - run: terraform init -input=false
+#      - run: terraform apply -input=false -auto-approve
