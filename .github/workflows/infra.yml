@@ -39,6 +39,7 @@ jobs:
       - uses: aquasecurity/tfsec-action@v1.0.3
         with:
           working_directory: terraform/${{ matrix.directory }}
+          github_token: ${{ secrets.GITHUB_TOKEN }} # avoids GitHub API rate limits
 
 # OFF ON PURPOSE: plan on pull request, apply on main.
 # Apply is manual because an automatic apply could start a ~$0.20/hour stack by
