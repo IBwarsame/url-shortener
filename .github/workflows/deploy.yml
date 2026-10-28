@@ -10,6 +10,15 @@ on:
         description: "Also deploy to ECS (the dev stack must be applied)"
         type: boolean
         default: false
+      service:
+        description: "Which service to deploy"
+        type: choice
+        options: [all, api, worker, dashboard]
+        default: all
+      image_tag:
+        description: "Image tag to deploy (empty = this commit; set it to roll back)"
+        type: string
+        default: ""
 
 permissions:
   id-token: write # lets the job get temporary AWS credentials (OIDC)
@@ -67,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, worker, dashboard]
+        service: ${{ fromJSON(inputs.service == 'all' && '["api","worker","dashboard"]' || format('["{0}"]', inputs.service)) }}
     steps:
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -84,7 +93,7 @@ jobs:
         with:
           task-definition: task-definition.json
           container-name: ${{ matrix.service }}
-          image: ${{ env.REGISTRY }}/url-shortener/${{ matrix.service }}:${{ github.sha }}
+          image: ${{ env.REGISTRY }}/url-shortener/${{ matrix.service }}:${{ inputs.image_tag || github.sha }}
       # Waits until healthy; the circuit breaker rolls back a bad version
       - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
