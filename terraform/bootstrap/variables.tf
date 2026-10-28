@@ -3,9 +3,12 @@ variable "region" {
   default = "us-east-1"
 
 }
-variable "github_repo" {
+# GitHub's immutable subject: the token names the repo by numeric IDs too, so a
+# deleted-and-recreated repo with the same name cannot reuse this trust.
+# Find yours with: gh api repos/OWNER/REPO/actions/oidc/customization/sub
+variable "github_subject" {
   type    = string
-  default = "IBwarsame/url-shortener"
+  default = "repo:IBwarsame@165455194/url-shortener@1433463931"
 }
 
 variable "services" {
